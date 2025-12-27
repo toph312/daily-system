@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+    <head>
+        <meta charset="UTF-8">
+        <title>Daily Pad</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                margin: 20px;
+            }
+
+            textarea {
+                width: 100%;
+                box-sizing: border-box;
+                font-size: 14px;
+                margin-bottom: 20px;
+            }
+
+            .meta-item {
+                margin-bottom: 10px;
+            }
+
+            button {
+                margin-left: 10px;
+                cursor: pointer;
+            }
+
+            .today-check {
+                margin-left: 10px;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        <h2>Daily Record</h2>
+        <textarea id="daily-content" rows="15" placeholder="今天的记录……"></textarea>
+
+        <h2>Meta</h2>
+
+        <div style="margin-bottom: 12px;">
+            <input id="new-meta-name" type="text" placeholder="新增一个 Meta（例如：阅读）" />
+            <button onclick="addMeta()">＋ 添加</button>
+        </div>
+
+        <div id="meta-list"></div>
+
+        <div style="margin-top: 10px;">
+            <button onclick="applyToday()">完成（计入已打勾项）</button>
+        </div>
+
+        
+        <h2>Meta Notes（手动）</h2>
+        <textarea id="meta-notes" rows="6" placeholder="用于非积累型或复杂 meta，例如：\nnofap：14.5 → 15.4 → 16.3 → 17.3\n（这里手动维护就行）"></textarea>
+
+
+        <h2>导出预览</h2>
+        <div id="preview-container">
+            <pre id="preview-text" style="white-space: pre-wrap; background: #f6f8fa; padding: 10px; border: 1px solid #ddd; border-radius: 4px;"></pre>
+            <button onclick="copyPreview()">复制到剪贴板</button>
+        </div>
+
+        <script>
+            const DEFAULT_METAS = [
+                { key: 'english', label: '英语' },
+                { key: 'program', label: 'Program' },
+                { key: 'sport', label: '运动' },
+            ];
+            const META_LIST_KEY = 'meta-list';
+            const META_NOTES_KEY = 'meta-notes';
+            const todayChecks = {};
+            const todayApplied = {};
+
+            function getMetaList() {
+                const saved = localStorage.getItem(META_LIST_KEY);
+                if (saved) {
+                    try {
+                        return JSON.parse(saved);
+                    } catch (e) {
+                        console.warn('Failed to parse meta list, using defaults.', e);
+                    }
+                }
+                localStorage.setItem(META_LIST_KEY, JSON.stringify(DEFAULT_METAS));
+                return [...DEFAULT_METAS];
+            }
+
+            function saveMetaList(list) {
+                localStorage.setItem(META_LIST_KEY, JSON.stringify(list));
+            }
+
+            function renderMetas() {
+                const metaList = getMetaList();
+                const container = document.getElementById('meta-list');
+                container.innerHTML = '';
+
+                metaList.forEach(meta => {
+                    const countKey = `meta-count-${meta.key}`;
+                    const count = localStorage.getItem(countKey) || 0;
+                    if (todayChecks[meta.key] === undefined) {
+                        todayChecks[meta.key] = false;
+                    }
+
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'meta-item';
+
+                    const label = document.createElement('span');
+                    label.textContent = `${meta.label}：已完成 `;
+
+                    const countSpan = document.createElement('span');
+                    countSpan.id = `${meta.key}-count`;
+                    countSpan.innerText = count;
+
+                    const suffix = document.createElement('span');
+                    suffix.textContent = ' 天';
+
+                    const todayCheck = document.createElement('input');
+                    todayCheck.type = 'checkbox';
+                    todayCheck.className = 'today-check';
+                    todayCheck.id = `${meta.key}-today`;
+                    todayCheck.checked = todayChecks[meta.key];
+                    todayCheck.title = '勾选后点击下方“完成”才会计入';
+                    todayCheck.addEventListener('change', (e) => {
+                        todayChecks[meta.key] = e.target.checked;
+                        updatePreview();
+                    });
+
+                    const setButton = document.createElement('button');
+                    setButton.textContent = '设定';
+                    setButton.addEventListener('click', () => {
+                        const newVal = prompt('请输入要设定的天数（非负整数）', count);
+                        if (newVal === null) return;
+                        setCount(meta.key, newVal);
+                    });
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = '删除';
+                    deleteButton.addEventListener('click', () => deleteMeta(meta.key));
+
+                    wrapper.appendChild(label);
+                    wrapper.appendChild(countSpan);
+                    wrapper.appendChild(suffix);
+                    wrapper.appendChild(todayCheck);
+                    wrapper.appendChild(setButton);
+                    wrapper.appendChild(deleteButton);
+
+                    container.appendChild(wrapper);
+                });
+
+                updatePreview();
+            }
+
+            function increment(key) {
+                const countKey = `meta-count-${key}`;
+                let count = localStorage.getItem(countKey);
+                count = count ? parseInt(count) + 1 : 1;
+                localStorage.setItem(countKey, count);
+                const span = document.getElementById(`${key}-count`);
+                if (span) {
+                    span.innerText = count;
+                }
+                updatePreview();
+            }
+
+            function setCount(key, value) {
+                const countKey = `meta-count-${key}`;
+                const parsed = parseInt(value);
+                if (isNaN(parsed) || parsed < 0) {
+                    alert('请输入有效的非负整数');
+                    return;
+                }
+                localStorage.setItem(countKey, parsed);
+                const span = document.getElementById(`${key}-count`);
+                if (span) {
+                    span.innerText = parsed;
+                }
+                updatePreview();
+            }
+
+            function deleteMeta(key) {
+                const metaList = getMetaList();
+                const target = metaList.find(m => m.key === key);
+                if (!target) return;
+                const confirmed = confirm(`删除 "${target.label}" ？操作不可撤销`);
+                if (!confirmed) return;
+
+                const nextList = metaList.filter(m => m.key !== key);
+                saveMetaList(nextList);
+                localStorage.removeItem(`meta-count-${key}`);
+                delete todayChecks[key];
+                renderMetas();
+                updatePreview();
+            }
+
+            function addMeta() {
+                const input = document.getElementById('new-meta-name');
+                const rawName = input.value.trim();
+                if (!rawName) return;
+
+                const metaList = getMetaList();
+                const exists = metaList.some(m => m.label === rawName);
+                if (exists) {
+                    alert('这个 Meta 已存在');
+                    return;
+                }
+
+                // Generate a storage-friendly key
+                const sanitized = rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                const key = sanitized || `meta-${Date.now()}`;
+
+                metaList.push({ key, label: rawName });
+                saveMetaList(metaList);
+                input.value = '';
+                renderMetas();
+            }
+
+            function applyToday() {
+                const metaList = getMetaList();
+                let anyChecked = false;
+                metaList.forEach(meta => {
+                    if (todayChecks[meta.key]) {
+                        anyChecked = true;
+                        increment(meta.key);
+                        todayChecks[meta.key] = false;
+                        const checkbox = document.getElementById(`${meta.key}-today`);
+                        if (checkbox) checkbox.checked = false;
+                        todayApplied[meta.key] = true;
+                    }
+                });
+                if (!anyChecked) {
+                    alert('请先勾选今日完成的项目');
+                }
+                updatePreview();
+            }
+
+            function getTodayString() {
+                const now = new Date();
+                const local = new Date(now);
+                // If it's before 4 AM, treat as the previous day to align with late-night journaling.
+                if (local.getHours() < 4) {
+                    local.setDate(local.getDate() - 1);
+                }
+                const offsetDate = new Date(local.getTime() - local.getTimezoneOffset() * 60000);
+                return offsetDate.toISOString().split('T')[0];
+            }
+
+            function buildPreviewText() {
+                const dateLine = getTodayString();
+                const content = document.getElementById('daily-content').value.trim() || '内容.....';
+                const metaLines = getMetaList().map(meta => {
+                    const count = localStorage.getItem(`meta-count-${meta.key}`) || 0;
+                    const pendingMark = (todayChecks[meta.key] || todayApplied[meta.key]) ? ' +' : '';
+                    return `${meta.label}: ${count} 天${pendingMark}`;
+                });
+                const notes = (localStorage.getItem(META_NOTES_KEY) || '').trim();
+                const notesLines = notes ? ['---', notes] : [];
+                return [dateLine, content, ...metaLines, ...notesLines].join('\n');
+            }
+
+            function updatePreview() {
+                const preview = document.getElementById('preview-text');
+                if (preview) {
+                    preview.textContent = buildPreviewText();
+                }
+            }
+
+            async function copyPreview() {
+                const text = buildPreviewText();
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        alert('已复制到剪贴板');
+                        return;
+                    } catch (err) {
+                        console.warn('Clipboard API failed, fallback to prompt.', err);
+                    }
+                }
+                prompt('复制以下内容：', text);
+            }
+
+            document.getElementById('daily-content').addEventListener('input', updatePreview);
+
+            // Meta notes persistence
+            const metaNotesEl = document.getElementById('meta-notes');
+            if (metaNotesEl) {
+                metaNotesEl.value = localStorage.getItem(META_NOTES_KEY) || '';
+                metaNotesEl.addEventListener('input', () => {
+                    localStorage.setItem(META_NOTES_KEY, metaNotesEl.value);
+                    updatePreview();
+                });
+            }
+            renderMetas();
+            updatePreview();
+        </script>
+
+    </body>
+
+</html>

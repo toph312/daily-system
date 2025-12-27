@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-CN">
+
+    <head>
+        <!--
+        cd heatmap
+        python -m http.server 8000
+        -->
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Daily Char Heatmap</title>
+        <style>
+            :root {
+                --bg: #0b0f14;
+                --panel: #0f1620;
+                --text: #e6edf3;
+                --muted: #9aa4af;
+                --border: #223042;
+
+                --c0: #161b22;
+                --c1: #0e4429;
+                --c2: #006d32;
+                --c3: #26a641;
+                --c4: #39d353;
+
+                --pill: rgba(255, 255, 255, 0.03);
+                --pillHover: rgba(255, 255, 255, 0.06);
+                --pillActive: rgba(255, 255, 255, 0.10);
+            }
+
+            body {
+                margin: 0;
+                font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+                background: var(--bg);
+                color: var(--text);
+            }
+
+            .wrap {
+                max-width: 1100px;
+                margin: 24px auto;
+                padding: 0 16px;
+            }
+
+            header {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+
+            h1 {
+                font-size: 18px;
+                margin: 0;
+                font-weight: 650;
+            }
+
+            .meta {
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            .card {
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 16px;
+            }
+
+            .controls {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+            }
+
+            .pills {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+
+            .pill {
+                border: 1px solid var(--border);
+                background: var(--pill);
+                color: var(--text);
+                font-size: 12px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                cursor: pointer;
+                user-select: none;
+            }
+
+            .pill:hover {
+                background: var(--pillHover);
+            }
+
+            .pill[aria-pressed="true"] {
+                background: var(--pillActive);
+            }
+
+            .hint {
+                color: var(--muted);
+                font-size: 12px;
+            }
+
+            .heatmap {
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .week-labels {
+                display: grid;
+                grid-template-rows: repeat(7, 14px);
+                gap: 3px;
+                padding-top: 20px;
+                user-select: none;
+                min-width: 32px;
+            }
+
+            .week-label {
+                height: 14px;
+                line-height: 14px;
+                font-size: 11px;
+                color: var(--muted);
+            }
+
+            .grid-wrap {
+                overflow-x: auto;
+                padding-bottom: 6px;
+            }
+
+            .month-labels {
+                display: grid;
+                grid-auto-flow: column;
+                grid-auto-columns: 14px;
+                gap: 3px;
+                height: 16px;
+                padding: 0 4px;
+                margin-bottom: 4px;
+                user-select: none;
+            }
+
+            .month-label {
+                font-size: 11px;
+                color: var(--muted);
+                line-height: 16px;
+                white-space: nowrap;
+                text-align: left;
+            }
+
+            .grid {
+                display: grid;
+                grid-auto-flow: column;
+                grid-auto-columns: 14px;
+                grid-template-rows: repeat(7, 14px);
+                gap: 3px;
+                align-items: start;
+                width: fit-content;
+                padding: 4px 4px 10px 4px;
+            }
+
+            .cell {
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                background: var(--c0);
+                outline: 1px solid rgba(255, 255, 255, 0.04);
+                cursor: default;
+            }
+
+            .lvl-0 {
+                background: var(--c0);
+            }
+
+            .lvl-1 {
+                background: var(--c1);
+            }
+
+            .lvl-2 {
+                background: var(--c2);
+            }
+
+            .lvl-3 {
+                background: var(--c3);
+            }
+
+            .lvl-4 {
+                background: var(--c4);
+            }
+
+            .legend {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--muted);
+                font-size: 12px;
+                margin-top: 10px;
+                user-select: none;
+            }
+
+            .legend .swatches {
+                display: flex;
+                gap: 3px;
+                align-items: center;
+            }
+
+            .legend .swatch {
+                width: 12px;
+                height: 12px;
+                border-radius: 3px;
+                outline: 1px solid rgba(255, 255, 255, 0.04);
+            }
+
+            .tooltip {
+                position: fixed;
+                pointer-events: none;
+                z-index: 999;
+                background: rgba(15, 22, 32, 0.95);
+                border: 1px solid var(--border);
+                color: var(--text);
+                padding: 8px 10px;
+                border-radius: 10px;
+                font-size: 12px;
+                line-height: 1.35;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+                transform: translate(-50%, -120%);
+                opacity: 0;
+                transition: opacity 0.08s ease;
+                white-space: nowrap;
+            }
+
+            .tooltip .muted {
+                color: var(--muted);
+            }
+
+            .row {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 10px;
+                color: var(--muted);
+                font-size: 12px;
+            }
+
+            .stat {
+                padding: 8px 10px;
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                background: rgba(255, 255, 255, 0.02);
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="wrap">
+            <header>
+                <h1>Daily Char Heatmap</h1>
+                <div class="meta" id="rangeMeta">Loading…</div>
+            </header>
+
+            <div class="card">
+
+                <div class="controls">
+                    <div class="pills" id="pills"></div>
+                    <div class="hint" id="hint"></div>
+                </div>
+
+                <div class="heatmap">
+                    <div class="week-labels" aria-hidden="true">
+                        <div class="week-label">Sun</div>
+                        <div class="week-label"></div>
+                        <div class="week-label">Tue</div>
+                        <div class="week-label"></div>
+                        <div class="week-label">Thu</div>
+                        <div class="week-label"></div>
+                        <div class="week-label"></div>
+                    </div>
+
+                    <div class="grid-wrap">
+                        <div class="month-labels" id="months"></div>
+                        <div class="grid" id="grid"></div>
+                    </div>
+                </div>
+
+                <div class="legend">
+                    <span>Less</span>
+                    <div class="swatches">
+                        <span class="swatch" style="background:var(--c0)"></span>
+                        <span class="swatch" style="background:var(--c1)"></span>
+                        <span class="swatch" style="background:var(--c2)"></span>
+                        <span class="swatch" style="background:var(--c3)"></span>
+                        <span class="swatch" style="background:var(--c4)"></span>
+                    </div>
+                    <span>More</span>
+                </div>
+
+                <div class="row" id="stats"></div>
+            </div>
+        </div>
+
+        <div class="tooltip" id="tooltip"></div>
+
+        <script>
+            const pad2 = (n) => String(n).padStart(2, "0");
+
+            function toISODate(d) {
+                return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+            }
+
+            function parseISODate(s) {
+                const [y, m, dd] = s.split("-").map(Number);
+                return new Date(y, m - 1, dd);
+            }
+
+            function addDays(d, n) {
+                const x = new Date(d);
+                x.setDate(x.getDate() + n);
+                return x;
+            }
+
+            function startOfWeekSunday(d) {
+                const x = new Date(d);
+                x.setDate(x.getDate() - x.getDay());
+                return x;
+            }
+
+            function endOfWeekSaturday(d) {
+                return addDays(startOfWeekSunday(d), 6);
+            }
+
+            function quantile(sortedArr, q) {
+                const n = sortedArr.length;
+                if (n === 0) return 0;
+                const pos = (n - 1) * q;
+                const base = Math.floor(pos);
+                const rest = pos - base;
+                if (sortedArr[base + 1] === undefined) return sortedArr[base];
+                return sortedArr[base] + rest * (sortedArr[base + 1] - sortedArr[base]);
+            }
+
+            function makeThresholds(values) {
+                const nonZero = values.filter(v => v > 0).sort((a, b) => a - b);
+                if (nonZero.length === 0) return [0, 0, 0];
+                return [
+                    quantile(nonZero, 0.25),
+                    quantile(nonZero, 0.50),
+                    quantile(nonZero, 0.75),
+                ];
+            }
+
+            function levelForValue(v, thresholds) {
+                if (v <= 0) return 0;
+                const [t1, t2, t3] = thresholds;
+                if (v <= t1) return 1;
+                if (v <= t2) return 2;
+                if (v <= t3) return 3;
+                return 4;
+            }
+
+            function monthShort(d) {
+                return d.toLocaleString("en-US", { month: "short" });
+            }
+
+            function maxDateFromKeys(keys) {
+                return parseISODate(keys[keys.length - 1]);
+            }
+
+            function pickWindow(allKeys, mode) {
+                const minAll = parseISODate(allKeys[0]);
+                const maxAll = maxDateFromKeys(allKeys);
+
+                if (mode === "all") {
+                    return { min: minAll, max: maxAll, label: "All time" };
+                }
+                const days = Number(mode);
+                const winMin = addDays(maxAll, -(days - 1));
+                const min = (winMin < minAll) ? minAll : winMin;
+                return { min, max: maxAll, label: `Last ${days} days` };
+            }
+
+            function subsetValues(raw, minD, maxD) {
+                const vals = [];
+                let d = new Date(minD);
+                while (d <= maxD) {
+                    vals.push(Number(raw[toISODate(d)] || 0));
+                    d = addDays(d, 1);
+                }
+                return vals;
+            }
+
+            const RANGE_MODES = [
+                { id: "7", text: "7d" },
+                { id: "30", text: "30d" },
+                { id: "90", text: "90d" },
+                { id: "180", text: "180d" },
+                { id: "365", text: "1y" },
+                { id: "all", text: "all" },
+            ];
+
+            let RAW = null;
+            let ALL_KEYS = [];
+            let ACTIVE_MODE = "365";
+
+            function renderPills() {
+                const pills = document.getElementById("pills");
+                pills.innerHTML = "";
+                for (const m of RANGE_MODES) {
+                    const btn = document.createElement("button");
+                    btn.className = "pill";
+                    btn.type = "button";
+                    btn.textContent = m.text;
+                    btn.setAttribute("aria-pressed", String(m.id === ACTIVE_MODE));
+                    btn.addEventListener("click", () => {
+                        ACTIVE_MODE = m.id;
+                        renderPills();
+                        renderHeatmap();
+                    });
+                    pills.appendChild(btn);
+                }
+            }
+
+            function renderHeatmap() {
+                const raw = RAW;
+                const allKeys = ALL_KEYS;
+                if (!raw || !allKeys.length) return;
+
+                const { min, max, label } = pickWindow(allKeys, ACTIVE_MODE);
+
+                // 仍然补齐到整周，保证网格是完整的“周列”
+                const start = startOfWeekSunday(min);
+                const end = endOfWeekSaturday(max);
+
+                // 阈值/统计只用窗口内数据
+                const windowVals = subsetValues(raw, min, max);
+                const thresholds = makeThresholds(windowVals);
+
+                const total = windowVals.reduce((a, b) => a + b, 0);
+                const maxV = windowVals.length ? Math.max(...windowVals) : 0;
+                const nonZeroDays = windowVals.filter(v => v > 0).length;
+
+                document.getElementById("rangeMeta").textContent =
+                    `${toISODate(min)} → ${toISODate(max)} (display: ${toISODate(start)} → ${toISODate(end)})`;
+
+                document.getElementById("hint").textContent = label;
+
+                document.getElementById("stats").innerHTML = `
+        <div class="stat">days: <b>${windowVals.length}</b></div>
+        <div class="stat">non-zero: <b>${nonZeroDays}</b></div>
+        <div class="stat">total chars: <b>${total}</b></div>
+        <div class="stat">max/day: <b>${maxV}</b></div>
+      `;
+
+                const grid = document.getElementById("grid");
+                const months = document.getElementById("months");
+                const tooltip = document.getElementById("tooltip");
+                grid.innerHTML = "";
+                months.innerHTML = "";
+
+                // 关键变化：窗口外不渲染，而是“窗口补齐后仍然渲染，但不包含窗口之外的周”
+                // 注意：这里 start/end 已经是窗口的补齐范围，所以仍会有“补齐周”的几天（不是窗口外的“更早周/更晚周”）
+                // 我们只渲染 start..end 这个补齐范围，不再画 all time 的那些周。
+                let curWeekStart = new Date(start);
+                let lastMonth = -1;
+
+                while (curWeekStart <= end) {
+                    const thisMonth = curWeekStart.getMonth();
+                    const m = document.createElement("div");
+                    m.className = "month-label";
+                    m.textContent = (thisMonth !== lastMonth) ? monthShort(curWeekStart) : "";
+                    months.appendChild(m);
+                    lastMonth = thisMonth;
+
+                    for (let dow = 0; dow < 7; dow++) {
+                        const d = addDays(curWeekStart, dow);
+                        const key = toISODate(d);
+
+                        // 补齐周可能会落在 min..max 之外：那就当作 0（但它仍属于“窗口展示的一部分”）
+                        const inWindow = (d >= min && d <= max);
+                        const v = inWindow ? Number(raw[key] || 0) : 0;
+
+                        const lvl = levelForValue(v, thresholds);
+
+                        const cell = document.createElement("div");
+                        cell.className = `cell lvl-${lvl}`;
+                        cell.dataset.date = key;
+                        cell.dataset.value = String(v);
+
+                        cell.addEventListener("mouseenter", () => {
+                            tooltip.style.opacity = "1";
+                            tooltip.innerHTML = `<b>${key}</b><br><span class="muted">${v} chars</span>`;
+                        });
+
+                        cell.addEventListener("mousemove", (e) => {
+                            tooltip.style.left = `${e.clientX}px`;
+                            tooltip.style.top = `${e.clientY}px`;
+                        });
+
+                        cell.addEventListener("mouseleave", () => {
+                            tooltip.style.opacity = "0";
+                        });
+
+                        grid.appendChild(cell);
+                    }
+
+                    curWeekStart = addDays(curWeekStart, 7);
+                }
+            }
+
+            async function main() {
+                const res = await fetch("./daily_char_map.json", { cache: "no-store" });
+                if (!res.ok) {
+                    document.getElementById("rangeMeta").textContent =
+                        "Failed to load daily_char_map.json (请用本地 http server 打开，而不是 file:// )";
+                    return;
+                }
+                RAW = await res.json();
+                ALL_KEYS = Object.keys(RAW).sort();
+
+                if (!ALL_KEYS.length) {
+                    document.getElementById("rangeMeta").textContent = "No data";
+                    return;
+                }
+
+                renderPills();
+                renderHeatmap();
+            }
+
+            main().catch(err => {
+                console.error(err);
+                document.getElementById("rangeMeta").textContent = "Error: " + err.message;
+            });
+        </script>
+    </body>
+
+</html>

@@ -1,0 +1,10 @@
+# raw daily data (private)
+daily_logs/
+
+# derived data (can be regenerated)
+*.json
+
+# temporary / workspace
+inbox/
+old_script/
+tempCodeRunnerFile.py

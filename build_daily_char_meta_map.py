@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
 import re
+from datetime import date
+
 
 def iter_md_files(root: Path):
     # 生成器
@@ -61,6 +63,40 @@ def parse_meta_from_text(text: str) -> dict:
 
     return {"metas": metas, "notes": notes}
 
+def patch_done_before_cutover(daily_meta_map: dict[str, dict], cutover_date: str) -> None:
+    """
+    只对 cutover_date 之前的 done 进行“增量推断补全”：
+    - 仅当某 label 今天的 count 比该 label 上一次出现时更大 -> 推断 done=True
+    - 若原本 done=True（显式 +）则不覆盖
+    - cutover_date 及之后不动（仍只认 +）
+    """
+    dates = sorted(daily_meta_map.keys())
+    last_count: dict[str, int] = {}
+
+    for d in dates:
+        if d >= cutover_date:
+            # 之后不补了；但要更新 last_count 以便后续 label 参考也行
+            for label, meta in daily_meta_map[d].get("metas", {}).items():
+                last_count[label] = meta.get("count", last_count.get(label, 0))
+            continue
+
+        metas = daily_meta_map[d].get("metas", {})
+        for label, meta in metas.items():
+            # 显式 + 的结果保留
+            if meta.get("done") is True:
+                last_count[label] = meta.get("count", last_count.get(label, 0))
+                continue
+
+            c = meta.get("count")
+            if c is None:
+                continue
+
+            prev = last_count.get(label)
+            inferred = (prev is not None and c > prev)
+            meta["done"] = bool(inferred)
+
+            last_count[label] = c
+
 def build_daily_maps(archive_root: Path):
     """
     一次遍历同时构建：
@@ -86,6 +122,9 @@ def main():
     OUT_META_FILE = BASE_DIR / "daily_meta_map.json"
 
     daily_char_map, daily_meta_map = build_daily_maps(ARCHIVE_ROOT)
+
+    # 处理过去没有"+"的问题
+    patch_done_before_cutover(daily_meta_map, cutover_date="2025-12-24")
 
     with open(OUT_CHAR_FILE, "w", encoding="utf-8") as f:
         json.dump(daily_char_map, f, ensure_ascii=False, indent=2)

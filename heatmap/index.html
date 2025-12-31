@@ -433,10 +433,6 @@
                         `<span class="meta-line">${badge} ${escapeHTML(name)}${count}</span>`
                     );
                 }
-                const notes = (entry.notes || "").trim();
-                if (notes) {
-                    lines.push(`<span class="meta-notes">${escapeHTML(notes)}</span>`);
-                }
                 if (!lines.length) return "";
                 return `<div class="meta-block">${lines.join("")}</div>`;
             }

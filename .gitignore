@@ -8,3 +8,6 @@ daily_logs/
 inbox/
 old_script/
 tempCodeRunnerFile.py
+
+# heatmap derived data
+heatmap/*.json

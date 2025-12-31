@@ -227,14 +227,32 @@
                 font-size: 12px;
                 line-height: 1.35;
                 box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-                transform: translate(-50%, -120%);
+                transform: translate(0, 0);
                 opacity: 0;
-                transition: opacity 0.08s ease;
+                transition: opacity 0.08s ease, transform 0.08s ease;
                 white-space: nowrap;
             }
 
             .tooltip .muted {
                 color: var(--muted);
+            }
+
+            .tooltip .meta-block {
+                margin-top: 6px;
+                text-align: left;
+                white-space: normal;
+            }
+
+            .tooltip .meta-line {
+                display: block;
+                color: var(--text);
+            }
+
+            .tooltip .meta-notes {
+                display: block;
+                margin-top: 4px;
+                color: var(--muted);
+                white-space: pre-line;
             }
 
             .row {
@@ -392,6 +410,83 @@
                 return vals;
             }
 
+            function escapeHTML(str) {
+                return String(str)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function renderMetaBlock(entry) {
+                if (!entry) return "";
+                const lines = [];
+                const metas = entry.metas || {};
+                for (const [name, info] of Object.entries(metas)) {
+                    const badge = info && info.done ? "✅" : "⬜";
+                    const count =
+                        info && Object.prototype.hasOwnProperty.call(info, "count")
+                            ? ` (${info.count})`
+                            : "";
+                    lines.push(
+                        `<span class="meta-line">${badge} ${escapeHTML(name)}${count}</span>`
+                    );
+                }
+                const notes = (entry.notes || "").trim();
+                if (notes) {
+                    lines.push(`<span class="meta-notes">${escapeHTML(notes)}</span>`);
+                }
+                if (!lines.length) return "";
+                return `<div class="meta-block">${lines.join("")}</div>`;
+            }
+
+            const tooltip = document.getElementById("tooltip");
+            const VIEWPORT_PADDING = 8;
+            const CURSOR_OFFSET = 14;
+            const HIDE_DELAY = 140;
+            let hideTimer = null;
+
+            function positionTooltip(e) {
+                const rect = tooltip.getBoundingClientRect();
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+
+                const desiredLeft = e.clientX - rect.width / 2;
+                const clampedLeft = Math.min(
+                    Math.max(desiredLeft, VIEWPORT_PADDING),
+                    Math.max(VIEWPORT_PADDING, vw - rect.width - VIEWPORT_PADDING)
+                );
+
+                const aboveTop = e.clientY - CURSOR_OFFSET - rect.height;
+                const belowTop = e.clientY + CURSOR_OFFSET;
+                const fitsAbove = aboveTop >= VIEWPORT_PADDING;
+                const fitsBelow = belowTop + rect.height <= vh - VIEWPORT_PADDING;
+                const chosenTop = (fitsAbove || !fitsBelow) ? aboveTop : belowTop;
+                const clampedTop = Math.min(
+                    Math.max(chosenTop, VIEWPORT_PADDING),
+                    Math.max(VIEWPORT_PADDING, vh - rect.height - VIEWPORT_PADDING)
+                );
+
+                tooltip.style.left = `${clampedLeft}px`;
+                tooltip.style.top = `${clampedTop}px`;
+            }
+
+            function showTooltip(e, html) {
+                clearTimeout(hideTimer);
+                tooltip.innerHTML = html;
+                tooltip.style.opacity = "1";
+                tooltip.style.transform = "translate(0, 0)";
+                positionTooltip(e);
+            }
+
+            function scheduleHideTooltip() {
+                clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => {
+                    tooltip.style.opacity = "0";
+                }, HIDE_DELAY);
+            }
+
             const RANGE_MODES = [
                 { id: "7", text: "7d" },
                 { id: "30", text: "30d" },
@@ -404,6 +499,7 @@
             let RAW = null;
             let ALL_KEYS = [];
             let ACTIVE_MODE = "365";
+            let META = {};
 
             function renderPills() {
                 const pills = document.getElementById("pills");
@@ -456,7 +552,6 @@
 
                 const grid = document.getElementById("grid");
                 const months = document.getElementById("months");
-                const tooltip = document.getElementById("tooltip");
                 grid.innerHTML = "";
                 months.innerHTML = "";
 
@@ -483,24 +578,25 @@
                         const v = inWindow ? Number(raw[key] || 0) : 0;
 
                         const lvl = levelForValue(v, thresholds);
+                        const meta = META[key];
+                        const metaHTML = renderMetaBlock(meta);
 
                         const cell = document.createElement("div");
                         cell.className = `cell lvl-${lvl}`;
                         cell.dataset.date = key;
                         cell.dataset.value = String(v);
 
-                        cell.addEventListener("mouseenter", () => {
-                            tooltip.style.opacity = "1";
-                            tooltip.innerHTML = `<b>${key}</b><br><span class="muted">${v} chars</span>`;
+                        cell.addEventListener("mouseenter", (e) => {
+                            const metaPart = metaHTML ? `<br>${metaHTML}` : "";
+                            showTooltip(e, `<b>${key}</b><br><span class="muted">${v} chars</span>${metaPart}`);
                         });
 
                         cell.addEventListener("mousemove", (e) => {
-                            tooltip.style.left = `${e.clientX}px`;
-                            tooltip.style.top = `${e.clientY}px`;
+                            positionTooltip(e);
                         });
 
                         cell.addEventListener("mouseleave", () => {
-                            tooltip.style.opacity = "0";
+                            scheduleHideTooltip();
                         });
 
                         grid.appendChild(cell);
@@ -511,13 +607,19 @@
             }
 
             async function main() {
-                const res = await fetch("./daily_char_map.json", { cache: "no-store" });
-                if (!res.ok) {
+                const [charRes, metaRes] = await Promise.all([
+                    fetch("./daily_char_map.json", { cache: "no-store" }),
+                    fetch("./daily_meta_map.json", { cache: "no-store" }).catch(() => null),
+                ]);
+
+                if (!charRes.ok) {
                     document.getElementById("rangeMeta").textContent =
                         "Failed to load daily_char_map.json (请用本地 http server 打开，而不是 file:// )";
                     return;
                 }
-                RAW = await res.json();
+
+                RAW = await charRes.json();
+                META = metaRes && metaRes.ok ? await metaRes.json() : {};
                 ALL_KEYS = Object.keys(RAW).sort();
 
                 if (!ALL_KEYS.length) {

@@ -50,15 +50,19 @@
             <button onclick="applyToday()">完成（计入已打勾项）</button>
         </div>
 
-        
+
         <h2>Meta Notes（手动）</h2>
-        <textarea id="meta-notes" rows="6" placeholder="用于非积累型或复杂 meta，例如：\nnofap：14.5 → 15.4 → 16.3 → 17.3\n（这里手动维护就行）"></textarea>
+        <textarea id="meta-notes" rows="6"
+            placeholder="用于非积累型或复杂 meta，例如：\nnofap：14.5 → 15.4 → 16.3 → 17.3\n（这里手动维护就行）"></textarea>
 
 
         <h2>导出预览</h2>
         <div id="preview-container">
-            <pre id="preview-text" style="white-space: pre-wrap; background: #f6f8fa; padding: 10px; border: 1px solid #ddd; border-radius: 4px;"></pre>
+            <pre id="preview-text"
+                style="white-space: pre-wrap; background: #f6f8fa; padding: 10px; border: 1px solid #ddd; border-radius: 4px;"></pre>
             <button onclick="copyPreview()">复制到剪贴板</button>
+            <button onclick="sendToAgent()">发送到Agent</button>
+            <div id="agent-status" style="margin-top:8px; font-size:13px;"></div>
         </div>
 
         <script>
@@ -257,6 +261,24 @@
                 return [dateLine, content, ...metaLines, ...notesLines].join('\n');
             }
 
+            function buildTodaySummary() {
+                const dateLine = `日期：${getTodayString()}`;
+                const metaList = getMetaList();
+                const finished = [];
+                const unfinished = [];
+                metaList.forEach(meta => {
+                    const done = todayChecks[meta.key] || todayApplied[meta.key];
+                    (done ? finished : unfinished).push(meta.label);
+                });
+                const notes = (document.getElementById('meta-notes')?.value || localStorage.getItem(META_NOTES_KEY) || '').trim();
+                const notesLine = notes ? `notes（前50字）：${notes.slice(0, 50)}` : '';
+                const indent = '  ';
+                const finishedLine = `${indent}■ ${finished.length ? finished.join('、') : '（无）'}`;
+                const unfinishedLine = `${indent}□ ${unfinished.length ? unfinished.join('、') : '（无）'}`;
+                const tipLine = '确认后将覆盖写入今天的数据，可再次发送修正';
+                return [dateLine, finishedLine, unfinishedLine, notesLine, tipLine].filter(Boolean).join('\n');
+            }
+
             function updatePreview() {
                 const preview = document.getElementById('preview-text');
                 if (preview) {
@@ -276,6 +298,29 @@
                     }
                 }
                 prompt('复制以下内容：', text);
+            }
+
+            async function sendToAgent() {
+                const statusEl = document.getElementById('agent-status');
+                const text = buildPreviewText();
+                if (!confirm(buildTodaySummary())) return;
+                const url = 'http://127.0.0.1:8787/save';
+                if (statusEl) statusEl.textContent = '发送中...';
+                try {
+                    const resp = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text, source: 'daily_pad', ts: new Date().toISOString() })
+                    });
+                    const data = await resp.json().catch(() => null);
+                    if (!resp.ok) {
+                        if (statusEl) statusEl.textContent = '失败：' + (data?.error || ('HTTP ' + resp.status));
+                        return;
+                    }
+                    if (statusEl) statusEl.textContent = '成功：' + (data?.message || 'ok');
+                } catch (e) {
+                    if (statusEl) statusEl.textContent = '失败：无法连接到 agent（' + (e?.message || e) + '）';
+                }
             }
 
             document.getElementById('daily-content').addEventListener('input', updatePreview);

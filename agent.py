@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from pathlib import Path
+import subprocess
 import datetime
 import json
 from build_daily_char_meta_map import (
@@ -14,6 +15,18 @@ app = Flask(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 DEBUG_FILE = BASE_DIR / "_agent_debug.json"
 INBOX_DIR = BASE_DIR / "agent_inbox"
+
+def scp_to_server(*paths):
+    """
+    把指定文件 scp 到服务器
+    """
+    remote = "root@139.224.80.186:/var/www/html/calendar"
+
+    cmd = ["scp", *map(str, paths), remote]
+
+    # 同步执行，失败就抛异常（方便你发现问题）
+    subprocess.run(cmd, check=True)
+
 
 @app.after_request
 def add_cors_headers(resp):
@@ -104,6 +117,9 @@ def save():
         json.dumps(daily_char_map, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
+
+    # === 自动 scp 到服务器 ===
+    scp_to_server(meta_map_path, char_map_path)
 
     return jsonify({"ok": True})
 

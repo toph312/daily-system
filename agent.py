@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import datetime
 import json
+from archive_daily import archive
 from build_daily_char_meta_map import (
     parse_meta_from_text,
     count_chars_from_text,
@@ -102,12 +103,15 @@ def save():
     else:
         daily_char_map = {}
 
-    today = datetime.date.today().isoformat()
+    content = str(text).splitlines()
+    log_date = content[0].strip()
+    archive(content)
+
     meta = parse_meta_from_text(str(text))
     char_count = count_chars_from_text(str(text))
 
-    daily_meta_map[today] = meta
-    daily_char_map[today] = char_count
+    daily_meta_map[log_date] = meta
+    daily_char_map[log_date] = char_count
 
     meta_map_path.write_text(
         json.dumps(daily_meta_map, ensure_ascii=False, indent=2),

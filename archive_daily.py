@@ -64,7 +64,7 @@ def archive(content: list[str]) -> tuple[str, Path, str]:
     return timestamp, archive_path, "written"
 
 if __name__ == "__main__":
-    path = Path(r"E:\daily\inbox\chat-2026-01-08T11-27-29-594Z.md")
+    path = Path(r"E:\daily\inbox\chat-2026-01-11T11-06-44-420Z.md")
     blocks = segment(path)
     stats = {"written": 0, "skipped_same": 0, "failed": 0}
     failed = []
